@@ -8,9 +8,7 @@ use sigstore::cosign::{self, signature_layers::SignatureLayer, ClientBuilder, Co
 use std::collections::HashMap;
 
 use crate::verify::config::Subject;
-use oci_distribution::Reference;
 use sigstore::errors::SigstoreError;
-use std::convert::TryFrom;
 use std::{convert::TryInto, str::FromStr};
 use tracing::{debug, error, info};
 use url::{ParseError, Url};
@@ -110,22 +108,13 @@ impl Verifier {
         pub_keys: Vec<String>,
         annotations: Option<HashMap<String, String>>,
     ) -> Result<String> {
-        // obtain image name:
-        //
-        let image_name = match image.strip_prefix("registry://") {
-            None => image.as_str(),
-            Some(image) => image,
-        };
-        if let Err(e) = Reference::try_from(image_name) {
-            return Err(anyhow!("Not a valid oci image {}", e));
-        }
 
         // obtain registry auth:
         //
         let auth: sigstore::registry::Auth = match docker_config {
             Some(docker_config) => {
                 let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
-                    .auth(image_name)
+                    .auth(&image_name)
                     .map_err(|e| {
                         anyhow!("Cannot build Auth object for image '{}': {:?}", image, e)
                     })?
@@ -142,6 +131,7 @@ impl Verifier {
             }
             None => sigstore::registry::Auth::Anonymous,
         };
+        let image_name = obtain_image_name(&image)?;
 
         // obtain all signatures of image:
         //
@@ -149,7 +139,7 @@ impl Verifier {
         // Fulcio,Rekor certs and signatures are not verified
         //
         let (cosign_signature_image, source_image_digest) =
-            self.cosign_client.triangulate(image_name, &auth).await?;
+            self.cosign_client.triangulate(&image_name, &auth).await?;
 
         let trusted_layers = self
             .cosign_client
@@ -217,22 +207,13 @@ impl Verifier {
         keyless: Vec<KeylessInfo>,
         annotations: Option<HashMap<String, String>>,
     ) -> Result<String> {
-        // obtain image name:
-        //
-        let image_name = match image.strip_prefix("registry://") {
-            None => image.as_str(),
-            Some(image) => image,
-        };
-        if let Err(e) = Reference::try_from(image_name) {
-            return Err(anyhow!("Not a valid oci image {}", e));
-        }
 
         // obtain registry auth:
         //
         let auth: sigstore::registry::Auth = match docker_config {
             Some(docker_config) => {
                 let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
-                    .auth(image_name)
+                    .auth(&image_name)
                     .map_err(|e| {
                         anyhow!("Cannot build Auth object for image '{}': {:?}", image, e)
                     })?
@@ -249,6 +230,7 @@ impl Verifier {
             }
             None => sigstore::registry::Auth::Anonymous,
         };
+        let image_name = obtain_image_name(&image)?;
 
         // obtain all signatures of image:
         //
@@ -256,7 +238,7 @@ impl Verifier {
         // Fulcio,Rekor certs and signatures are not verified
         //
         let (cosign_signature_image, source_image_digest) =
-            self.cosign_client.triangulate(image_name, &auth).await?;
+            self.cosign_client.triangulate(&image_name, &auth).await?;
 
         let trusted_layers = match self
             .cosign_client
@@ -332,28 +314,13 @@ impl Verifier {
         docker_config: Option<&DockerConfig>,
         verification_config: &config::LatestVerificationConfig,
     ) -> Result<String> {
-        // obtain image name:
-        //
-        let url = match Url::parse(url) {
-            Ok(u) => Ok(u),
-            Err(ParseError::RelativeUrlWithoutBase) => {
-                Url::parse(format!("registry://{}", url).as_str())
-            }
-            Err(e) => Err(e),
-        }?;
-        if url.scheme() != "registry" {
-            return Err(anyhow!(
-                "Verification works only with 'registry://' protocol"
-            ));
-        }
-        let image_name = url.as_str().strip_prefix("registry://").unwrap();
 
         // obtain registry auth:
         //
         let auth: sigstore::registry::Auth = match docker_config {
             Some(docker_config) => {
                 let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
-                    .auth(image_name)
+                    .auth(&image_name)
                     .map_err(|e| anyhow!("Cannot build Auth object for image '{}': {:?}", url, e))?
                     .map(|ra| {
                         let a: Result<sigstore::registry::Auth> =
@@ -368,6 +335,7 @@ impl Verifier {
             }
             None => sigstore::registry::Auth::Anonymous,
         };
+        let image_name = obtain_image_name(url)?;
 
         // obtain all signatures of image:
         //
@@ -375,7 +343,7 @@ impl Verifier {
         // Fulcio,Rekor certs and signatures are not verified
         //
         let (cosign_signature_image, source_image_digest) =
-            self.cosign_client.triangulate(image_name, &auth).await?;
+            self.cosign_client.triangulate(&image_name, &auth).await?;
 
         let trusted_layers = self
             .cosign_client
@@ -406,19 +374,7 @@ impl Verifier {
         docker_config: Option<&DockerConfig>,
         verified_manifest_digest: &str,
     ) -> Result<()> {
-        let url = match Url::parse(&policy.uri) {
-            Ok(u) => Ok(u),
-            Err(ParseError::RelativeUrlWithoutBase) => {
-                Url::parse(format!("registry://{}", policy.uri).as_str())
-            }
-            Err(e) => Err(e),
-        }?;
-        if url.scheme() != "registry" {
-            return Err(anyhow!(
-                "Verification works only with 'registry://' protocol"
-            ));
-        }
-        let image_name = url.as_str().strip_prefix("registry://").unwrap();
+        let image_name = obtain_image_name(policy.uri.as_ref())?;
 
         if !policy.local_path.exists() {
             return Err(anyhow!(
@@ -428,7 +384,7 @@ impl Verifier {
         }
 
         let registry = crate::registry::Registry::new(docker_config);
-        let reference = oci_distribution::Reference::from_str(image_name)?;
+        let reference = oci_distribution::Reference::from_str(&image_name)?;
         let image_immutable_ref = format!(
             "registry://{}/{}@{}",
             reference.registry(),
@@ -471,6 +427,24 @@ impl Verifier {
             Ok(())
         }
     }
+}
+
+// Obtains the image name from the complete image URI
+fn obtain_image_name(full_uri: &str) -> Result<String> {
+    let url = match Url::parse(full_uri) {
+        Ok(u) => Ok(u),
+        Err(ParseError::RelativeUrlWithoutBase) => {
+            Url::parse(format!("registry://{}", full_uri).as_str())
+        }
+        Err(e) => Err(e),
+    }?;
+    if url.scheme() != "registry" {
+        return Err(anyhow!(
+            "Verification works only with 'registry://' protocol"
+        ));
+    }
+    let image_name = url.as_str().strip_prefix("registry://").unwrap();
+    Ok(image_name.to_string())
 }
 
 // Verifies the trusted layers against the VerificationConfig passed to it.
