@@ -409,6 +409,26 @@ fn obtain_registry_auth(
     };
     Ok(auth)
 }
+
+// async fn obtain_signature_layers(
+//     image_name: &str,
+//     auth: &sigstore::registry::Auth,
+// ) -> Vec<SignatureLayer, Global> {
+//     // obtain all signatures of image:
+//     //
+//     // trusted_signature_layers() will error early if cosign_client using
+//     // Fulcio,Rekor certs and signatures are not verified
+//     //
+//     let (cosign_signature_image, source_image_digest) =
+//         self.cosign_client.triangulate(&image_name, &auth).await?;
+
+//     let trusted_layers = self
+//         .cosign_client
+//         .trusted_signature_layers(&auth, &source_image_digest, &cosign_signature_image)
+//         .await?;
+//     trusted_layers
+// }
+
 // Verifies the trusted layers against the VerificationConfig passed to it.
 // It does that by creating the verification constraints from the config, and
 // then filtering the trusted_layers with the corresponding constraints.
