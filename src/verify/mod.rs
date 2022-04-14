@@ -108,30 +108,8 @@ impl Verifier {
         pub_keys: Vec<String>,
         annotations: Option<HashMap<String, String>>,
     ) -> Result<String> {
-
-        // obtain registry auth:
-        //
-        let auth: sigstore::registry::Auth = match docker_config {
-            Some(docker_config) => {
-                let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
-                    .auth(&image_name)
-                    .map_err(|e| {
-                        anyhow!("Cannot build Auth object for image '{}': {:?}", image, e)
-                    })?
-                    .map(|ra| {
-                        let a: Result<sigstore::registry::Auth> =
-                            TryInto::<sigstore::registry::Auth>::try_into(ra);
-                        a
-                    });
-
-                match sigstore_auth {
-                    None => sigstore::registry::Auth::Anonymous,
-                    Some(sa) => sa?,
-                }
-            }
-            None => sigstore::registry::Auth::Anonymous,
-        };
         let image_name = obtain_image_name(&image)?;
+        let auth = obtain_registry_auth(docker_config, &image_name, &image)?;
 
         // obtain all signatures of image:
         //
@@ -207,30 +185,8 @@ impl Verifier {
         keyless: Vec<KeylessInfo>,
         annotations: Option<HashMap<String, String>>,
     ) -> Result<String> {
-
-        // obtain registry auth:
-        //
-        let auth: sigstore::registry::Auth = match docker_config {
-            Some(docker_config) => {
-                let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
-                    .auth(&image_name)
-                    .map_err(|e| {
-                        anyhow!("Cannot build Auth object for image '{}': {:?}", image, e)
-                    })?
-                    .map(|ra| {
-                        let a: Result<sigstore::registry::Auth> =
-                            TryInto::<sigstore::registry::Auth>::try_into(ra);
-                        a
-                    });
-
-                match sigstore_auth {
-                    None => sigstore::registry::Auth::Anonymous,
-                    Some(sa) => sa?,
-                }
-            }
-            None => sigstore::registry::Auth::Anonymous,
-        };
         let image_name = obtain_image_name(&image)?;
+        let auth = obtain_registry_auth(docker_config, &image_name, &image)?;
 
         // obtain all signatures of image:
         //
@@ -314,28 +270,8 @@ impl Verifier {
         docker_config: Option<&DockerConfig>,
         verification_config: &config::LatestVerificationConfig,
     ) -> Result<String> {
-
-        // obtain registry auth:
-        //
-        let auth: sigstore::registry::Auth = match docker_config {
-            Some(docker_config) => {
-                let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
-                    .auth(&image_name)
-                    .map_err(|e| anyhow!("Cannot build Auth object for image '{}': {:?}", url, e))?
-                    .map(|ra| {
-                        let a: Result<sigstore::registry::Auth> =
-                            TryInto::<sigstore::registry::Auth>::try_into(ra);
-                        a
-                    });
-
-                match sigstore_auth {
-                    None => sigstore::registry::Auth::Anonymous,
-                    Some(sa) => sa?,
-                }
-            }
-            None => sigstore::registry::Auth::Anonymous,
-        };
         let image_name = obtain_image_name(url)?;
+        let auth = obtain_registry_auth(docker_config, &image_name, url)?;
 
         // obtain all signatures of image:
         //
@@ -447,6 +383,32 @@ fn obtain_image_name(full_uri: &str) -> Result<String> {
     Ok(image_name.to_string())
 }
 
+// Obtains the registry auth from the docker_config and image_name
+fn obtain_registry_auth(
+    docker_config: Option<&DockerConfig>,
+    image_name: &str,
+    url: &str,
+) -> Result<sigstore::registry::Auth> {
+    let auth: sigstore::registry::Auth = match docker_config {
+        Some(docker_config) => {
+            let sigstore_auth: Option<Result<sigstore::registry::Auth>> = docker_config
+                .auth(image_name)
+                .map_err(|e| anyhow!("Cannot build Auth object for image '{}': {:?}", url, e))?
+                .map(|ra| {
+                    let a: Result<sigstore::registry::Auth> =
+                        TryInto::<sigstore::registry::Auth>::try_into(ra);
+                    a
+                });
+
+            match sigstore_auth {
+                None => sigstore::registry::Auth::Anonymous,
+                Some(sa) => sa?,
+            }
+        }
+        None => sigstore::registry::Auth::Anonymous,
+    };
+    Ok(auth)
+}
 // Verifies the trusted layers against the VerificationConfig passed to it.
 // It does that by creating the verification constraints from the config, and
 // then filtering the trusted_layers with the corresponding constraints.
